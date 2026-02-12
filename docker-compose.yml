@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  model-registry:
+    build:
+      context: ./control-plane/model-registry
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5000"
+    networks:
+      - ml-network
+
+  deployment-service:
+    build:
+      context: ./control-plane/deployment-service
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5000"
+    networks:
+      - ml-network
+
+  config-service:
+    build:
+      context: ./control-plane/config-service
+      dockerfile: Dockerfile
+    ports:
+      - "5003:5000"
+    networks:
+      - ml-network
+
+  gateway:
+    build:
+      context: ./data-plane/gateway
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    networks:
+      - ml-network
+
+  triton:
+    image: nvcr.io/nvidia/tritonserver:latest
+    ports:
+      - "8001:8001"  # HTTP
+      - "8002:8002"  # gRPC
+    volumes:
+      - ./triton/models:/models
+    networks:
+      - ml-network
+
+networks:
+  ml-network:
+    driver: bridge

@@ -1,0 +1,15 @@
+Flask==2.1.2
+
+# Model Registry Service Dependencies
+
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# MLflow integration
+mlflow==2.10.0
+boto3==1.34.0  # For S3 access
+
+# Database (if needed for metadata)
+sqlalchemy==2.0.23

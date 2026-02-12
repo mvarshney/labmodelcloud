@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-registry
+  labels:
+    app: model-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-registry
+  template:
+    metadata:
+      labels:
+        app: model-registry
+    spec:
+      containers:
+        - name: model-registry
+          image: your-docker-image/model-registry:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              value: "your-database-url"
+            - name: MLFLOW_TRACKING_URI
+              value: "your-mlflow-tracking-uri"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-registry
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8000
+      targetPort: 8000
+  selector:
+    app: model-registry

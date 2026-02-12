@@ -1,0 +1,26 @@
+model_version: "1"
+platform: "pytorch_libtorch"
+max_batch_size: 32
+max_concurrent_requests: 8
+min_batch_size: 1
+input: {
+  name: "input_tensor"
+  data_type: TYPE_FP32
+  dims: [ -1, 5 ]  # Adjust the dimensions based on your model's input shape
+}
+output: {
+  name: "output_score"
+  data_type: TYPE_FP32
+  dims: [ -1, 1 ]  # Adjust the dimensions based on your model's output shape
+}
+instance_group: [
+  {
+    name: "gpu_0"
+    count: 1
+    kind: KIND_GPU
+  }
+]
+dynamic_batching {
+  preferred_batch_size: [ 1, 2, 4, 8, 16, 32 ]
+  max_queue_delay_microseconds: 10000  # 10ms
+}

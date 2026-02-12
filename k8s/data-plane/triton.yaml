@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triton-inference-server
+  labels:
+    app: triton
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: triton
+  template:
+    metadata:
+      labels:
+        app: triton
+    spec:
+      containers:
+      - name: triton
+        image: nvcr.io/nvidia/tritonserver:latest
+        args: [
+          "--model-repository=/models",
+          "--log-verbose=1"
+        ]
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: model-repo
+          mountPath: /models
+      volumes:
+      - name: model-repo
+        hostPath:
+          path: /path/to/your/model/repo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: triton-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8000
+    targetPort: 8000
+  selector:
+    app: triton
