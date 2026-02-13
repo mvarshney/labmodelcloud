@@ -1,35 +1,37 @@
+---
 apiVersion: v1
-kind: ConfigMap
+kind: PersistentVolume
 metadata:
-  name: grafana-config
-  namespace: monitoring
-data:
-  grafana.ini: |
-    [server]
-    root_url = %(protocol)s://%(domain)s:%(http_port)s/grafana
-    serve_from_sub_path = true
+  name: grafana-pv
+spec:
+  capacity:
+    storage: 2Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /data/grafana
+  storageClassName: local-storage
 
-    [auth]
-    disable_login_form = false
-    disable_signout_menu = false
-
-    [users]
-    allow_sign_up = true
-
-    [database]
-    type = sqlite3
-    path = grafana.db
-
-    [log]
-    mode = console
-    level = info
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: local-storage
 
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: grafana
-  namespace: monitoring
+  namespace: default
 spec:
   replicas: 1
   selector:
@@ -41,30 +43,42 @@ spec:
         app: grafana
     spec:
       containers:
-        - name: grafana
-          image: grafana/grafana:latest
-          ports:
-            - containerPort: 3000
-          env:
-            - name: GF_SECURITY_ADMIN_PASSWORD
-              value: "admin"
-          volumeMounts:
-            - name: grafana-storage
-              mountPath: /var/lib/grafana
+      - name: grafana
+        image: grafana/grafana:latest
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          value: "admin"
+        - name: GF_USERS_ALLOW_SIGN_UP
+          value: "false"
+        ports:
+        - containerPort: 3000
+          name: http
+        volumeMounts:
+        - name: storage
+          mountPath: /var/lib/grafana
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
       volumes:
-        - name: grafana-storage
-          emptyDir: {}
+      - name: storage
+        persistentVolumeClaim:
+          claimName: grafana-pvc
 
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: grafana
-  namespace: monitoring
+  namespace: default
 spec:
-  type: ClusterIP
-  ports:
-    - port: 80
-      targetPort: 3000
   selector:
     app: grafana
+  ports:
+  - name: http
+    port: 3000
+    targetPort: 3000
+  type: ClusterIP

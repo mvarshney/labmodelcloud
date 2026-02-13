@@ -1,16 +1,16 @@
 FROM python:3.11-slim
 
-# Set the working directory
 WORKDIR /app
 
-# Copy requirements file
-COPY requirements.txt .
-
 # Install dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the source code
-COPY src/ .
+# Copy source code
+COPY src/ ./src/
 
-# Command to run the application
-CMD ["python", "main.py"]
+# Expose port
+EXPOSE 8003
+
+# Run the service
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8003"]

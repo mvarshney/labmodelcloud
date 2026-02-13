@@ -1,21 +1,59 @@
+---
 apiVersion: v1
-kind: Service
+kind: ConfigMap
 metadata:
-  name: prometheus
-  labels:
-    app: prometheus
+  name: prometheus-config
+  namespace: default
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: 'gateway'
+        static_configs:
+          - targets: ['gateway:8000']
+        metrics_path: '/api/v1/metrics'
+
+      - job_name: 'triton'
+        static_configs:
+          - targets: ['triton:8002']
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: prometheus-pv
 spec:
-  ports:
-    - name: http
-      port: 9090
-      targetPort: 9090
-  selector:
-    app: prometheus
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /data/prometheus
+  storageClassName: local-storage
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: local-storage
+
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: prometheus
+  namespace: default
 spec:
   replicas: 1
   selector:
@@ -27,32 +65,45 @@ spec:
         app: prometheus
     spec:
       containers:
-        - name: prometheus
-          image: prom/prometheus:latest
-          ports:
-            - containerPort: 9090
-          volumeMounts:
-            - name: prometheus-config
-              mountPath: /etc/prometheus/
-          args:
-            - "--config.file=/etc/prometheus/prometheus.yml"
+      - name: prometheus
+        image: prom/prometheus:latest
+        args:
+          - '--config.file=/etc/prometheus/prometheus.yml'
+          - '--storage.tsdb.path=/prometheus'
+        ports:
+        - containerPort: 9090
+          name: http
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+        - name: storage
+          mountPath: /prometheus
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
       volumes:
-        - name: prometheus-config
-          configMap:
-            name: prometheus-config
+      - name: config
+        configMap:
+          name: prometheus-config
+      - name: storage
+        persistentVolumeClaim:
+          claimName: prometheus-pvc
+
 ---
 apiVersion: v1
-kind: ConfigMap
+kind: Service
 metadata:
-  name: prometheus-config
-data:
-  prometheus.yml: |
-    global:
-      scrape_interval: 15s
-    scrape_configs:
-      - job_name: 'gateway'
-        static_configs:
-          - targets: ['gateway:8000']
-      - job_name: 'triton'
-        static_configs:
-          - targets: ['triton:8000']
+  name: prometheus
+  namespace: default
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - name: http
+    port: 9090
+    targetPort: 9090
+  type: ClusterIP

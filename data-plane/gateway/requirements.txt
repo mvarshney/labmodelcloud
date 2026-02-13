@@ -1,16 +1,9 @@
-# Data Plane Gateway Dependencies
-
-fastapi==0.109.0
-uvicorn[standard]==0.27.0
-pydantic==2.5.0
+fastapi==0.109.2
+uvicorn[standard]==0.27.1
+pydantic==2.6.1
 pydantic-settings==2.1.0
-
-# Triton client
 tritonclient[grpc]==2.40.0
-numpy==1.24.0
-
-# Metrics
+numpy==1.26.3
 prometheus-client==0.19.0
-
-# Async HTTP client for control plane
-httpx==0.25.0
+httpx==0.26.0
+python-multipart==0.0.9

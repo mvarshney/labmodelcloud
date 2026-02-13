@@ -1,0 +1,125 @@
+{
+  "dashboard": {
+    "title": "ML Inference Metrics",
+    "tags": ["ml", "inference", "triton"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Request Rate (QPS)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(inference_requests_total{status=\"success\"}[1m])",
+            "legendFormat": "{{model_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"label": "Requests/sec", "format": "short"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Latency (P50, P95, P99)",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(inference_latency_seconds_bucket[1m]))",
+            "legendFormat": "P50 - {{model_name}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(inference_latency_seconds_bucket[1m]))",
+            "legendFormat": "P95 - {{model_name}}",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(inference_latency_seconds_bucket[1m]))",
+            "legendFormat": "P99 - {{model_name}}",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {"label": "Latency (seconds)", "format": "s"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Batch Size Distribution (KEY METRIC)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(inference_batch_size_bucket[1m]))",
+            "legendFormat": "P50 Batch Size - {{model_name}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(inference_batch_size_bucket[1m]))",
+            "legendFormat": "P95 Batch Size - {{model_name}}",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"label": "Batch Size", "format": "short"},
+          {"format": "short"}
+        ],
+        "description": "Shows the batch sizes Triton is using. At low QPS, expect ~1. At high QPS, should increase toward max_batch_size (32)."
+      },
+      {
+        "id": 4,
+        "title": "Traffic Distribution",
+        "type": "piechart",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum by (model_name) (rate(inference_requests_total{status=\"success\"}[5m]))",
+            "legendFormat": "{{model_name}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Error Rate",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(inference_requests_total{status=\"error\"}[1m])",
+            "legendFormat": "{{model_name}} errors",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"label": "Errors/sec", "format": "short"},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Routing Weights",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "routing_weights",
+            "legendFormat": "{{model_name}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"label": "Weight", "format": "percentunit", "max": 1},
+          {"format": "short"}
+        ]
+      }
+    ],
+    "schemaVersion": 16,
+    "version": 1
+  }
+}

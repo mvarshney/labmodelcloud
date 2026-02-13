@@ -1,9 +1,9 @@
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: config-service
-  labels:
-    app: config-service
+  namespace: default
 spec:
   replicas: 1
   selector:
@@ -16,21 +16,39 @@ spec:
     spec:
       containers:
       - name: config-service
-        image: your-docker-repo/config-service:latest
-        ports:
-        - containerPort: 8000
+        image: config-service:latest
+        imagePullPolicy: IfNotPresent
         env:
-        - name: CONFIG_SERVICE_ENV
-          value: "production"
+        - name: SERVICE_PORT
+          value: "8002"
+        ports:
+        - containerPort: 8002
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8002
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: config-service
+  namespace: default
 spec:
-  type: ClusterIP
-  ports:
-  - port: 8000
-    targetPort: 8000
   selector:
     app: config-service
+  ports:
+  - name: http
+    port: 8002
+    targetPort: 8002
+  type: ClusterIP

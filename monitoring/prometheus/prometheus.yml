@@ -1,0 +1,27 @@
+# Prometheus Configuration for ML Serving Platform
+
+global:
+  scrape_interval: 15s      # How often to scrape targets
+  evaluation_interval: 15s   # How often to evaluate rules
+  external_labels:
+    cluster: 'ml-serving'
+
+# Scrape configurations
+scrape_configs:
+  # Gateway metrics (KEY metrics for observing dynamic batching!)
+  - job_name: 'gateway'
+    static_configs:
+      - targets: ['gateway:8000']
+    metrics_path: '/api/v1/metrics'
+    scrape_interval: 5s  # More frequent scraping for gateway
+
+  # Triton metrics
+  - job_name: 'triton'
+    static_configs:
+      - targets: ['triton:8002']
+    metrics_path: '/metrics'
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

@@ -1,51 +1,242 @@
 version: '3.8'
 
 services:
+  # ============================================================================
+  # STORAGE - MinIO (S3-compatible object storage)
+  # ============================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"      # API
+      - "9001:9001"      # Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - ml-network
+
+  # MinIO client to create bucket on startup
+  minio-init:
+    image: minio/mc:latest
+    container_name: minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/models --ignore-existing;
+      echo 'MinIO bucket created successfully';
+      "
+    networks:
+      - ml-network
+
+  # ============================================================================
+  # ML TRACKING - MLflow
+  # ============================================================================
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.10.2
+    container_name: mlflow
+    ports:
+      - "5000:5000"
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow/artifacts
+    volumes:
+      - mlflow_data:/mlflow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ml-network
+
+  # ============================================================================
+  # MODEL SERVING - NVIDIA Triton Inference Server
+  # ============================================================================
+  triton:
+    image: nvcr.io/nvidia/tritonserver:24.01-py3
+    container_name: triton
+    ports:
+      - "8000:8000"      # HTTP
+      - "8001:8001"      # gRPC
+      - "8002:8002"      # Metrics
+    volumes:
+      - ./triton/models:/models
+    command: tritonserver --model-repository=/models --http-port=8000 --grpc-port=8001 --metrics-port=8002 --log-verbose=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v2/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ml-network
+    # Uncomment below if you have GPUs
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # ============================================================================
+  # CONTROL PLANE SERVICES
+  # ============================================================================
+
+  # Model Registry Service
   model-registry:
     build:
       context: ./control-plane/model-registry
       dockerfile: Dockerfile
+    container_name: model-registry
     ports:
-      - "5001:5000"
+      - "8001:8001"
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      SERVICE_PORT: 8001
+    depends_on:
+      - mlflow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - ml-network
 
-  deployment-service:
-    build:
-      context: ./control-plane/deployment-service
-      dockerfile: Dockerfile
-    ports:
-      - "5002:5000"
-    networks:
-      - ml-network
-
+  # Config Service
   config-service:
     build:
       context: ./control-plane/config-service
       dockerfile: Dockerfile
+    container_name: config-service
     ports:
-      - "5003:5000"
+      - "8002:8002"
+    environment:
+      SERVICE_PORT: 8002
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     networks:
       - ml-network
 
+  # Deployment Service
+  deployment-service:
+    build:
+      context: ./control-plane/deployment-service
+      dockerfile: Dockerfile
+    container_name: deployment-service
+    ports:
+      - "8003:8003"
+    environment:
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minioadmin
+      S3_SECRET_KEY: minioadmin
+      S3_BUCKET: models
+      TRITON_URL: triton:8000
+      TRITON_MODEL_REPO: /models
+      MODEL_REGISTRY_URL: http://model-registry:8001
+      CONFIG_SERVICE_URL: http://config-service:8002
+      SERVICE_PORT: 8003
+    volumes:
+      - ./triton/models:/models
+    depends_on:
+      - triton
+      - minio
+      - model-registry
+      - config-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ml-network
+
+  # ============================================================================
+  # DATA PLANE - Gateway
+  # ============================================================================
   gateway:
     build:
       context: ./data-plane/gateway
       dockerfile: Dockerfile
+    container_name: gateway
     ports:
       - "8000:8000"
+    environment:
+      TRITON_URL: triton:8001           # gRPC port
+      CONFIG_SERVICE_URL: http://config-service:8002
+      CONFIG_POLL_INTERVAL: 30
+      SERVICE_PORT: 8000
+    depends_on:
+      - triton
+      - config-service
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     networks:
       - ml-network
 
-  triton:
-    image: nvcr.io/nvidia/tritonserver:latest
+  # ============================================================================
+  # MONITORING - Prometheus
+  # ============================================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
     ports:
-      - "8001:8001"  # HTTP
-      - "8002:8002"  # gRPC
+      - "9090:9090"
     volumes:
-      - ./triton/models:/models
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    depends_on:
+      - gateway
     networks:
       - ml-network
+
+  # ============================================================================
+  # MONITORING - Grafana
+  # ============================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    networks:
+      - ml-network
+
+volumes:
+  minio_data:
+  mlflow_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   ml-network:
