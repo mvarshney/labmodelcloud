@@ -1,233 +1,66 @@
-ML Model Serving Platform
-======================================
-Project Overview
------------------------------
-Goals
-~~~~~~~~
-Build a production-grade ML model serving platform for recommendation models with the following capabilities:
+High-Performance Model Multiplexing on Ray Serve
+1. Project Purpose
+The goal is to build a professional-grade model serving infrastructure using Ray Serve. This system must support a "Model Family" architecture where 30+ large model variants (e.g., could be LoRA adapters or entirely different model architectures and/or weights) are served efficiently across a distributed cluster.
 
-* Serve PyTorch models on GPUs with high throughput and low latency
-* Support multiple model variants with configurable traffic routing
-* Provide control plane for model lifecycle management
-* Enable dynamic batching for GPU efficiency
-* Learn modern ML infrastructure patterns and distributed systems concepts
+We are building this as a hands on learning lab to deeply undertand the ML Serving platform and the nuances that only show up when one actually runs such system. Our scope is Model Serving Infra as used by big tech companies. 
 
-Non-Goals (What We Won't Build in Phase 1)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-❌ Feature fetching and caching (deferred to Phase 2)
-❌ A/B experiment framework with user assignment (deferred to Phase 2)
-❌ GPU placement optimization (deferred to Phase 3)
-❌ TensorRT optimization (deferred to Phase 3)
-❌ Multi-datacenter orchestration
-❌ Advanced deployment strategies (blue-green, canary)
-❌ Model training pipelines
-❌ Online learning / model updates from live traffic
+We are using Ray as a free and easy to use platform for building Model Serving platform. Learning Ray or Ray Serve is not our goal.
 
-Success Criteria
-~~~~~~~~~~~~~~~~~
-Functional:
+The core constraint is VRAM Efficiency: we cannot load all 30 models simultaneously. We must use dynamic loading and intelligent eviction to maximize GPU utilization while minimizing cold-start latency.
 
-Register and deploy 2 models via control plane API
-Route traffic between models based on configurable weights
-Update routing weights dynamically without restarts
-Achieve 1000+ QPS with acceptable latency
+2. Technical Goals & Requirements
+Model Multiplexing: Use a single deployment pool to serve 30+ distinct model IDs.
 
-Performance:
+Fractional GPU Allocation: Support bin-packing multiple replicas or adapters on a single GPU (e.g., num_gpus: 0.5).
 
-P99 latency < 50ms for inference
-Demonstrate batching efficiency (1x → 10x+ throughput improvement)
-GPU utilization > 70%
+LRU Weight Caching: Implement a custom logic to swap model weights in VRAM, evicting the Least Recently Used (LRU) variant when memory is full.
 
-Operational:
+Zero-Downtime Scaling: Use Ray Serve’s autoscaling to handle bursty traffic without dropping requests.
 
-Zero-downtime model deployment
-Observable via metrics (Prometheus)
-Deployable via docker-compose (dev) and K8s (prod)
+Head/Worker Architecture: Separate the Ingress (FastAPI) from the Inference Workers for better lifecycle management.
 
+3. Implementation Design
+A. The "Multiplexed" Inference Logic
+We will use @serve.multiplexed to allow a single replica to represent many model IDs.
 
-System Architecture
----------------------------------
-High-Level Architecture
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-┌─────────────────────────────────────────────────────────┐
-│                   Control Plane                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │   Model      │  │  Deployment  │  │    Config    │  │
-│  │  Registry    │  │   Service    │  │   Service    │  │
-│  │  (MLflow)    │  │              │  │              │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-└─────────────────────────────────────────────────────────┘
-                          │
-                          │ gRPC / REST
-                          │
-┌─────────────────────────────────────────────────────────┐
-│                      Data Plane                          │
-│                                                          │
-│  ┌────────────────────────────────────────────────┐     │
-│  │           Python Gateway (FastAPI)             │     │
-│  │  ┌──────────────┐  ┌──────────────┐           │     │
-│  │  │   Router     │  │ Config Client│           │     │
-│  │  │ (Weighted    │  │ (polls CP)   │           │     │
-│  │  │  Random)     │  │              │           │     │
-│  │  └──────────────┘  └──────────────┘           │     │
-│  └────────────────────────────────────────────────┘     │
-│                          │                               │
-│                          │ gRPC                          │
-│                          ▼                               │
-│  ┌────────────────────────────────────────────────┐     │
-│  │         Triton Inference Server                │     │
-│  │  ┌──────────────┐  ┌──────────────┐           │     │
-│  │  │  Model V1    │  │  Model V2    │           │     │
-│  │  │  (GPU 0)     │  │  (GPU 0)     │           │     │
-│  │  │              │  │              │           │     │
-│  │  │ Dynamic      │  │ Dynamic      │           │     │
-│  │  │ Batching     │  │ Batching     │           │     │
-│  │  └──────────────┘  └──────────────┘           │     │
-│  └────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────┘
-Component Responsibilities
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Control Plane:
+The Cache: A dictionary-based cache within the actor that stores loaded model objects.
 
-Model Registry Service: Manages model metadata, integrates with MLflow
-Deployment Service: Orchestrates model deployment to Triton instances
-Config Service: Stores and serves routing configuration
+The Fetcher: An asynchronous method to pull weights from remote storage (S3/GCS) or a shared local NVMe mount.
 
-Data Plane:
+B. Resource Constraints
+To simulate professional infrastructure, we will enforce:
 
-Python Gateway: HTTP/gRPC API, routing, config polling
-Triton Inference Server: GPU model serving with dynamic batching
+max_ongoing_requests: To prevent head-of-line blocking during weight swaps.
 
+target_ongoing_requests: For autoscaling triggers.
 
-Technology Choices
-~~~~~~~~~~~~~~~~~~~~~~~~~
-Core Stack
+ray_actor_options: Strict memory limits to trigger Ray’s object spilling.
 
-Language (Gateway): Python 3.11+ with asyncio
-Language (Control Plane): Python 3.11+ (FastAPI services)
-Model Serving: NVIDIA Triton Inference Server 2.40+
-Model Format: PyTorch JIT (.pt files)
-Model Registry: MLflow 2.10+
-API Framework: FastAPI 0.109+
-RPC Protocol: gRPC (Triton communication), REST (control plane APIs)
-Container Orchestration: Kubernetes 1.28+ (prod), docker-compose (dev)
-Metrics: Prometheus + Grafana
-Storage: S3/MinIO for model artifacts
+C. The Ingress Layer
+A FastAPI app that acts as the "Traffic Controller." It will:
 
-Why These Choices?
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Python for Gateway:
+Validate the model_id against a registry.
 
-Natural integration with ML ecosystem
-Async/await for I/O-bound operations
-Interview relevance for AI infra roles
-Fast iteration for learning
+Route the request to the MultiplexedWorker using a DeploymentHandle.
 
-# Triton for Inference:
+Track metrics (request latency, cache hit/miss ratio).
 
-Industry standard (NVIDIA official)
-Dynamic batching out-of-the-box
-Multi-backend support (PyTorch, ONNX, TensorRT)
-Production-proven at scale
+4. Proposed File Structure
+<To be decided later>
 
-# gRPC for Triton Communication:
+5. Instructions for the LLM (Claude/GPT)
+When generating the code for this project, please adhere to these design patterns:
 
-Binary protocol (efficient for tensors)
-HTTP/2 multiplexing
-Strong typing via protobuf
+Ensure the code can run on CPU. The testing environment is Ubuntu VM where we can deploy Ray, k8s etc, but it does not have gpus.
 
-# K8s Service Discovery:
+Concurrency: Use async/await for the weight loading process to ensure the event loop isn't blocked while waiting for I/O.
 
-Learn real distributed systems patterns
-DNS-based discovery (simple, robust)
-Foundation for multi-datacenter later
+Error Handling: Implement robust handling for ModelNotFound and CudaOutOfMemory errors. If a model fails to load, the worker should report health as "unhealthy" so Ray can restart it.
 
+The Multiplexed Decorator: Specifically use:
 
-# High-level gateway structure
-class InferenceGateway:
-    def __init__(self):
-        self.triton_client = TritonGRPCClient()
-        self.router = WeightedRouter()
-        self.config_client = ControlPlaneClient()
-        self.metrics = PrometheusMetrics()
-    
-    async def predict(self, request: PredictRequest) -> PredictResponse:
-        # 1. Select model based on routing config
-        model_name = await self.router.select_model()
-        
-        # 2. Send to Triton (batching handled by Triton)
-        result = await self.triton_client.infer(model_name, request.tensor)
-        
-        # 3. Record metrics
-        self.metrics.record_latency(model_name, latency)
-        
-        return PredictResponse(score=result)
-    
-    async def sync_config(self):
-        # Poll control plane every 30s for routing config
-        while True:
-            config = await self.config_client.get_routing_config()
-            self.router.update_weights(config)
-            await asyncio.sleep(30)
+Python
 
-
-### Request Flow
-1. Client → POST /predict
-   Body: {"tensor": [[0.1, 0.2, ..., 0.5]]}  # Shape: [batch_size, features]
-
-2. Gateway:
-   - Validates input schema
-   - Selects model: weighted_random(models, weights)
-   - Forwards to Triton via gRPC
-
-3. Triton:
-   - Adds request to dynamic batch queue
-   - Waits up to max_batch_delay (e.g., 10ms)
-   - Accumulates up to max_batch_size (e.g., 32)
-   - Executes batch inference on GPU
-   - Returns individual results
-
-4. Gateway:
-   - Extracts result for this request
-   - Records metrics (latency, model_name)
-   - Returns response
-
-5. Client ← Response
-   Body: {"score": 0.87}
-
-
-### Triton Integration
-
-**Model Repository Structure:**
-```
-/models/
-├── recommendation_v1/
-│   ├── 1/                    # Version 1
-│   │   └── model.pt          # PyTorch JIT model
-│   └── config.pbtxt          # Triton config
-└── recommendation_v2/
-    ├── 1/
-    │   └── model.pt
-    └── config.pbtxt
-
-
-
-Model Registry Service
-============================
-Responsibilities:
-
-Register new models with metadata
-Store model information in MLflow
-Track model versions and lineage
-Provide model discovery API
-
-
-Deployment Service
-==========================
-Responsibilities:
-
-Download models from S3 to Triton model repository
-Load models into Triton via Management API
-Run smoke tests to validate deployment
-Update routing configuration after successful deployment
-Unload models from Triton
+@serve.multiplexed(max_num_models_per_replica=3)
+async def get_model(self, model_id: str):
+    # Implementation here

@@ -1,9 +1,0 @@
-fastapi==0.109.2
-uvicorn[standard]==0.27.1
-pydantic==2.6.1
-pydantic-settings==2.1.0
-tritonclient[grpc]==2.40.0
-numpy==1.26.3
-prometheus-client==0.19.0
-httpx==0.26.0
-python-multipart==0.0.9
