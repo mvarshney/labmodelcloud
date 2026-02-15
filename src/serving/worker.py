@@ -51,7 +51,8 @@ class MultiplexedModelWorker:
 
     async def predict(self, input_data: list[list[float]]) -> dict:
         """Run inference using the multiplexed model for this request."""
-        model: SimulatedModel = await self.get_model()
+        model_id = serve.get_multiplexed_model_id()
+        model: SimulatedModel = await self.get_model(model_id)
         result = model.predict(input_data)
         return {
             "model_id": model.model_id,

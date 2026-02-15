@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Start Ray and deploy the Serve application."""
 
+import os
 import sys
 import time
 from pathlib import Path
@@ -8,6 +9,9 @@ from pathlib import Path
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+# Tell Ray Dashboard where Prometheus is running
+os.environ.setdefault("RAY_PROMETHEUS_HOST", "http://localhost:9090")
 
 import ray
 from ray import serve

@@ -1,18 +1,15 @@
 global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+  scrape_interval: 5s
+  evaluation_interval: 5s
 
 scrape_configs:
-  - job_name: "ray-serve"
-    metrics_path: /metrics
+  # Scrape Prometheus itself
+  - job_name: "prometheus"
     static_configs:
-      - targets: ["host.docker.internal:8080"]
-        labels:
-          service: "model-multiplexer"
+      - targets: ["localhost:9090"]
 
-  - job_name: "ray-dashboard"
+  # Scrape Ray's metrics export endpoint (default port 8080 on each node)
+  - job_name: "ray"
     metrics_path: /metrics
     static_configs:
-      - targets: ["host.docker.internal:8265"]
-        labels:
-          service: "ray-cluster"
+      - targets: ["localhost:8080"]
